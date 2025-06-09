@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Upload, Download, AlertCircle, CheckCircle, Loader2, Package } from 'lucide-react';
 import { fetchAmazonData } from '../services/keepaService';
 import { formatCurrency } from '../utils/formatters';
@@ -6,27 +6,33 @@ import { formatCurrency } from '../utils/formatters';
 interface ProductInfo {
   asin: string;
   title: string;
-  currentPrice: number | null;
+  newPrice: number | null;
+  usedPrice: number | null;
   imageUrl: string | null;
   status: 'pending' | 'loading' | 'success' | 'error';
   error?: string;
 }
 
 const ProductAutoFetch: React.FC = () => {
-  const [singleAsin, setSingleAsin] = useState('');
+  const [singleAsin, setSingleAsin] = useState('B089M62DFV');
   const [bulkAsins, setBulkAsins] = useState('');
   const [fetchedProducts, setFetchedProducts] = useState<ProductInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
 
+  // コンポーネント読み込み時に自動で指定ASINの価格を取得
+  useEffect(() => {
+    handleSingleFetch();
+  }, []);
+
   // 単品取得
   const handleSingleFetch = async () => {
-    if (!singleAsin.trim()) {
+    const asin = singleAsin.trim().toUpperCase();
+    if (!asin) {
       alert('ASINコードを入力してください');
       return;
     }
 
-    const asin = singleAsin.trim().toUpperCase();
     if (!/^[A-Z0-9]{10}$/.test(asin)) {
       alert('有効な10桁のASINコードを入力してください');
       return;
@@ -36,7 +42,8 @@ const ProductAutoFetch: React.FC = () => {
     const newProduct: ProductInfo = {
       asin,
       title: '',
-      currentPrice: null,
+      newPrice: null,
+      usedPrice: null,
       imageUrl: null,
       status: 'loading'
     };
@@ -49,7 +56,8 @@ const ProductAutoFetch: React.FC = () => {
       const updatedProduct: ProductInfo = {
         asin,
         title: data.title,
-        currentPrice: data.usedPrice || data.newPrice,
+        newPrice: data.newPrice,
+        usedPrice: data.usedPrice,
         imageUrl: data.imageUrl,
         status: 'success'
       };
@@ -59,7 +67,8 @@ const ProductAutoFetch: React.FC = () => {
       const errorProduct: ProductInfo = {
         asin,
         title: '',
-        currentPrice: null,
+        newPrice: null,
+        usedPrice: null,
         imageUrl: null,
         status: 'error',
         error: error instanceof Error ? error.message : '取得に失敗しました'
@@ -101,7 +110,8 @@ const ProductAutoFetch: React.FC = () => {
     const initialProducts: ProductInfo[] = asinList.map(asin => ({
       asin,
       title: '',
-      currentPrice: null,
+      newPrice: null,
+      usedPrice: null,
       imageUrl: null,
       status: 'pending'
     }));
@@ -124,7 +134,8 @@ const ProductAutoFetch: React.FC = () => {
           prev.map(p => p.asin === asin ? {
             ...p,
             title: data.title,
-            currentPrice: data.usedPrice || data.newPrice,
+            newPrice: data.newPrice,
+            usedPrice: data.usedPrice,
             imageUrl: data.imageUrl,
             status: 'success'
           } : p)
@@ -155,14 +166,15 @@ const ProductAutoFetch: React.FC = () => {
       return;
     }
 
-    const csvHeader = 'ASIN,商品名,価格(円),ステータス,エラー\n';
+    const csvHeader = 'ASIN,商品名,新品価格(円),中古価格(円),ステータス,エラー\n';
     const csvData = fetchedProducts.map(product => {
-      const price = product.currentPrice ? product.currentPrice.toString() : '取得不可';
+      const newPrice = product.newPrice ? product.newPrice.toString() : '取得不可';
+      const usedPrice = product.usedPrice ? product.usedPrice.toString() : '取得不可';
       const status = product.status === 'success' ? '成功' : 
                     product.status === 'error' ? 'エラー' : '処理中';
       const error = product.error || '';
       
-      return `"${product.asin}","${product.title}","${price}","${status}","${error}"`;
+      return `"${product.asin}","${product.title}","${newPrice}","${usedPrice}","${status}","${error}"`;
     }).join('\n');
 
     const blob = new Blob([csvHeader + csvData], { type: 'text/csv;charset=utf-8;' });
@@ -361,28 +373,32 @@ const ProductAutoFetch: React.FC = () => {
                       </div>
 
                       {product.title && (
-                        <h4 className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
+                        <h4 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">
                           {product.title}
                         </h4>
                       )}
 
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-gray-600">
-                          {product.status === 'success' && (
-                            <span className="font-medium text-blue-600">
-                              価格: {product.currentPrice ? formatCurrency(product.currentPrice) : '在庫なし'}
-                            </span>
-                          )}
-                          {product.status === 'error' && (
-                            <span className="text-red-600">
-                              {product.error || 'エラーが発生しました'}
-                            </span>
-                          )}
-                          {product.status === 'loading' && (
-                            <span className="text-blue-600">取得中...</span>
-                          )}
+                      {/* 価格情報の詳細表示 */}
+                      {product.status === 'success' && (
+                        <div className="space-y-1">
+                          <div className="text-lg font-bold text-blue-600">
+                            新品価格: {product.newPrice ? formatCurrency(product.newPrice) : '価格情報なし'}
+                          </div>
+                          <div className="text-lg font-bold text-green-600">
+                            中古価格: {product.usedPrice ? formatCurrency(product.usedPrice) : '中古商品なし'}
+                          </div>
                         </div>
-                      </div>
+                      )}
+
+                      {product.status === 'error' && (
+                        <div className="text-sm text-red-600">
+                          {product.error || 'エラーが発生しました'}
+                        </div>
+                      )}
+
+                      {product.status === 'loading' && (
+                        <div className="text-sm text-blue-600">取得中...</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -399,7 +415,8 @@ const ProductAutoFetch: React.FC = () => {
               <h4 className="text-sm font-medium text-blue-800 mb-2">ご利用上の注意</h4>
               <ul className="text-sm text-blue-700 space-y-1">
                 <li>• 価格情報はKeepa APIと同期し、常に最新価格を表示します</li>
-                <li>• 在庫切れ商品は「在庫なし」と表示されます</li>
+                <li>• 在庫切れ商品は「価格情報なし」と表示されます</li>
+                <li>• 中古商品がない場合は「中古商品なし」と表示されます</li>
                 <li>• 一括取得時は2秒間隔で順次処理されます</li>
                 <li>• 1回の一括登録上限は100商品までです</li>
                 <li>• 取得できない場合はエラーメッセージが表示されます</li>
