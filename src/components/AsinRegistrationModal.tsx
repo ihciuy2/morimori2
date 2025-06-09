@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { X, Plus, AlertCircle, Loader2, Package } from 'lucide-react';
+import { X, Plus, AlertCircle, Loader2, Package, BarChart3 } from 'lucide-react';
 import { useProducts } from '../context/ProductContext';
 import { fetchAmazonData } from '../services/keepaService';
 import { formatCurrency } from '../utils/formatters';
+import PriceAnalysisModal from './PriceAnalysisModal';
 
 interface AsinRegistrationModalProps {
   isOpen: boolean;
@@ -16,11 +17,22 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPriceAnalysis, setShowPriceAnalysis] = useState(false);
   const [productData, setProductData] = useState<{
     title: string;
     imageUrl: string | null;
     newPrice: number | null;
     usedPrice: number | null;
+    priceAnalysis?: {
+      isRecentData: boolean;
+      priceVariation: number | null;
+      marketComparison: string;
+      confidenceLevel: 'high' | 'medium' | 'low';
+      recommendations: string[];
+    };
+    avgPrice30Days?: number | null;
+    avgPrice90Days?: number | null;
+    avgPrice180Days?: number | null;
   } | null>(null);
 
   const handleAsinChange = async (value: string) => {
@@ -55,7 +67,11 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
         title: data.title,
         imageUrl: data.imageUrl,
         newPrice: data.newPrice,
-        usedPrice: data.usedPrice
+        usedPrice: data.usedPrice,
+        priceAnalysis: data.priceAnalysis,
+        avgPrice30Days: data.avgPrice30Days,
+        avgPrice90Days: data.avgPrice90Days,
+        avgPrice180Days: data.avgPrice180Days
       });
       
       setProductName(data.title);
@@ -70,6 +86,9 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
 
   const formatPriceDisplay = (price: number | null, label: string) => {
     if (price === null) {
+      if (label.includes('中古')) {
+        return `${label}：中古商品なし`;
+      }
       return `${label}：価格情報なし`;
     }
     return `${label}：${formatCurrency(price)}`;
@@ -100,7 +119,7 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
       await addProduct({
         name: productName.trim(),
         asin: asin,
-        yahooKeyword: productName.trim(), // 商品名をヤフオクキーワードとしても使用
+        yahooKeyword: productName.trim(),
         targetProfitRate: 30,
       });
       
@@ -122,164 +141,212 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
     setProductName('');
     setProductData(null);
     setError(null);
+    setShowPriceAnalysis(false);
     onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div id="modalAsinInput" className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">新規商品登録</h2>
-          <button
-            onClick={handleClose}
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* ASIN入力 */}
-          <div>
-            <label htmlFor="asin" className="block text-sm font-medium text-gray-700 mb-2">
-              ASINコード
-              <span className="text-red-500 ml-1">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                id="asin"
-                value={asin}
-                onChange={(e) => handleAsinChange(e.target.value)}
-                className={`w-full px-4 py-3 border-2 rounded-lg text-lg font-mono tracking-wider transition-colors ${
-                  error ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
-                }`}
-                placeholder="B01EXAMPLE"
-                maxLength={10}
-                disabled={isLoading || isFetchingData}
-              />
-              {isFetchingData && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-                </div>
-              )}
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              Amazon商品ページのURLまたは商品詳細から10桁のASINコードを入力してください
-            </p>
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div id="modalAsinInput" className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">新規商品登録</h2>
+            <button
+              onClick={handleClose}
+              className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
           </div>
+          
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* ASIN入力 */}
+            <div>
+              <label htmlFor="asin" className="block text-sm font-medium text-gray-700 mb-2">
+                ASINコード
+                <span className="text-red-500 ml-1">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  id="asin"
+                  value={asin}
+                  onChange={(e) => handleAsinChange(e.target.value)}
+                  className={`w-full px-4 py-3 border-2 rounded-lg text-lg font-mono tracking-wider transition-colors ${
+                    error ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                  }`}
+                  placeholder="B01EXAMPLE"
+                  maxLength={10}
+                  disabled={isLoading || isFetchingData}
+                />
+                {isFetchingData && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Amazon商品ページのURLまたは商品詳細から10桁のASINコードを入力してください
+              </p>
+            </div>
 
-          {/* 商品データプレビュー */}
-          {productData && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start space-x-4">
-                {/* 商品画像 */}
-                <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                  {productData.imageUrl ? (
-                    <img
-                      src={productData.imageUrl}
-                      alt={productData.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = 'https://via.placeholder.com/80x80?text=No+Image';
-                      }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Package className="w-6 h-6 text-gray-400" />
-                    </div>
-                  )}
-                </div>
+            {/* 商品データプレビュー */}
+            {productData && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start space-x-4">
+                  {/* 商品画像 */}
+                  <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                    {productData.imageUrl ? (
+                      <img
+                        src={productData.imageUrl}
+                        alt={productData.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = 'https://via.placeholder.com/80x80?text=No+Image';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Package className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                  </div>
 
-                {/* 商品情報 */}
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">取得した商品情報</h4>
-                  <p className="text-xs text-blue-700 line-clamp-2 mb-3">
-                    {productData.title}
-                  </p>
-                  
-                  {/* 価格情報 */}
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-gray-800">
-                      {formatPriceDisplay(productData.newPrice, "新品価格")}
+                  {/* 商品情報 */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-blue-800">取得した商品情報</h4>
+                      {productData.priceAnalysis && (
+                        <button
+                          type="button"
+                          onClick={() => setShowPriceAnalysis(true)}
+                          className="flex items-center text-xs text-purple-600 hover:text-purple-800 bg-purple-100 hover:bg-purple-200 px-2 py-1 rounded transition-colors"
+                        >
+                          <BarChart3 className="w-3 h-3 mr-1" />
+                          価格分析
+                        </button>
+                      )}
                     </div>
-                    <div className="text-sm font-medium text-gray-800">
-                      {productData.usedPrice !== null 
-                        ? formatPriceDisplay(productData.usedPrice, "中古価格")
-                        : "中古価格：中古商品なし"
-                      }
+                    
+                    <p className="text-xs text-blue-700 line-clamp-2 mb-3">
+                      {productData.title}
+                    </p>
+                    
+                    {/* 価格情報 */}
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-gray-800">
+                        {formatPriceDisplay(productData.newPrice, "新品価格")}
+                      </div>
+                      <div className="text-sm font-medium text-gray-800">
+                        {formatPriceDisplay(productData.usedPrice, "中古価格")}
+                      </div>
+                      
+                      {/* 価格分析サマリー */}
+                      {productData.priceAnalysis && (
+                        <div className="mt-2 p-2 bg-white rounded border">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-600">データ信頼度:</span>
+                            <span className={`font-medium ${
+                              productData.priceAnalysis.confidenceLevel === 'high' ? 'text-green-600' :
+                              productData.priceAnalysis.confidenceLevel === 'medium' ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {productData.priceAnalysis.confidenceLevel === 'high' ? '高' :
+                               productData.priceAnalysis.confidenceLevel === 'medium' ? '中' : '低'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs mt-1">
+                            <span className="text-gray-600">市場比較:</span>
+                            <span className="font-medium text-gray-800">
+                              {productData.priceAnalysis.marketComparison}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* 商品名入力 */}
-          <div>
-            <label htmlFor="productName" className="block text-sm font-medium text-gray-700 mb-2">
-              商品名
-              <span className="text-red-500 ml-1">*</span>
-            </label>
-            <textarea
-              id="productName"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              className={`w-full px-4 py-3 border-2 rounded-lg transition-colors resize-none ${
-                error && !productName.trim() ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
-              }`}
-              placeholder="商品名を入力または編集してください"
-              rows={3}
-              disabled={isLoading}
-            />
-            <p className="mt-2 text-xs text-gray-500">
-              自動取得された商品名を確認・編集できます
-            </p>
-          </div>
-
-          {/* エラーメッセージ */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-600 flex items-center">
-                <AlertCircle className="w-4 h-4 mr-2" />
-                {error}
+            {/* 商品名入力 */}
+            <div>
+              <label htmlFor="productName" className="block text-sm font-medium text-gray-700 mb-2">
+                商品名
+                <span className="text-red-500 ml-1">*</span>
+              </label>
+              <textarea
+                id="productName"
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                className={`w-full px-4 py-3 border-2 rounded-lg transition-colors resize-none ${
+                  error && !productName.trim() ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                }`}
+                placeholder="商品名を入力または編集してください"
+                rows={3}
+                disabled={isLoading}
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                自動取得された商品名を確認・編集できます
               </p>
             </div>
-          )}
-          
-          {/* ボタン */}
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isLoading || isFetchingData}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              キャンセル
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading || isFetchingData || !asin.trim() || !productName.trim()}
-              className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  登録中...
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4 mr-2" />
-                  登録
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+
+            {/* エラーメッセージ */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-600 flex items-center">
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  {error}
+                </p>
+              </div>
+            )}
+            
+            {/* ボタン */}
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={isLoading || isFetchingData}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || isFetchingData || !asin.trim() || !productName.trim()}
+                className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    登録中...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 mr-2" />
+                    登録
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+
+      {/* 価格分析モーダル */}
+      <PriceAnalysisModal
+        isOpen={showPriceAnalysis}
+        onClose={() => setShowPriceAnalysis(false)}
+        asin={asin}
+        currentPrice={productData?.usedPrice || null}
+        priceAnalysis={productData?.priceAnalysis || null}
+        avgPrice30Days={productData?.avgPrice30Days || null}
+        avgPrice90Days={productData?.avgPrice90Days || null}
+        avgPrice180Days={productData?.avgPrice180Days || null}
+      />
+    </>
   );
 };
 

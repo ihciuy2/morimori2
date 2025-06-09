@@ -11,6 +11,8 @@ interface KeepaResponse {
     stats: {
       current: number[];
       avg90: number[];
+      avg30: number[];
+      avg180: number[];
     };
     offers?: Array<{
       condition: number;
@@ -18,6 +20,7 @@ interface KeepaResponse {
       shipping: number;
       prime: boolean;
       fba: boolean;
+      lastSeen: number;
     }>;
   }>;
 }
@@ -48,7 +51,15 @@ const getAmazonImageUrl = (imagesCSV: string): string | null => {
  * 中古商品の最安値を正確に取得する関数
  * コンディション別に価格を分析し、最適な価格を返す
  */
-const getOptimalUsedPrice = (product: any): { price: number | null; sellersCount: number } => {
+const getOptimalUsedPrice = (product: any): { 
+  price: number | null; 
+  sellersCount: number;
+  priceHistory: Array<{ date: number; price: number }>;
+  avgPrice30Days: number | null;
+  avgPrice90Days: number | null;
+  avgPrice180Days: number | null;
+  isLatestPrice: boolean;
+} => {
   try {
     // CSVデータから中古価格を取得
     const USED_PRICE_INDEX = 1;
@@ -62,28 +73,84 @@ const getOptimalUsedPrice = (product: any): { price: number | null; sellersCount
 
     let bestPrice: number | null = null;
     let sellersCount = 0;
+    let isLatestPrice = false;
+
+    // 価格履歴の構築（過去30日分）
+    const priceHistory: Array<{ date: number; price: number }> = [];
+    const now = Date.now();
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+
+    // CSVデータから価格履歴を構築
+    if (usedPriceData.length > 0) {
+      for (let i = 0; i < usedPriceData.length; i += 2) {
+        const timestamp = usedPriceData[i];
+        const price = usedPriceData[i + 1];
+        
+        if (timestamp && price && price !== -1 && timestamp >= thirtyDaysAgo) {
+          const convertedPrice = convertKeepaPrice(price);
+          if (convertedPrice) {
+            priceHistory.push({
+              date: timestamp,
+              price: convertedPrice
+            });
+          }
+        }
+      }
+    }
+
+    // 統計データから平均価格を取得
+    const avgPrice30Days = convertKeepaPrice(product.stats?.avg30?.[USED_PRICE_INDEX]);
+    const avgPrice90Days = convertKeepaPrice(product.stats?.avg90?.[USED_PRICE_INDEX]);
+    const avgPrice180Days = convertKeepaPrice(product.stats?.avg180?.[USED_PRICE_INDEX]);
 
     // オファー情報がある場合は、それを優先して使用
     if (usedOffers.length > 0) {
-      // 価格順にソートして最安値を取得
-      const sortedOffers = usedOffers.sort((a: any, b: any) => {
-        const totalPriceA = a.price + (a.shipping || 0);
-        const totalPriceB = b.price + (b.shipping || 0);
-        return totalPriceA - totalPriceB;
+      // 最新のオファーを確認
+      const latestOffers = usedOffers.filter((offer: any) => {
+        const lastSeen = offer.lastSeen || 0;
+        const oneHourAgo = now - (60 * 60 * 1000);
+        return lastSeen >= oneHourAgo;
       });
 
-      const bestOffer = sortedOffers[0];
-      bestPrice = convertKeepaPrice(bestOffer.price + (bestOffer.shipping || 0));
-      sellersCount = usedOffers.length;
+      if (latestOffers.length > 0) {
+        // 価格順にソートして最安値を取得
+        const sortedOffers = latestOffers.sort((a: any, b: any) => {
+          const totalPriceA = a.price + (a.shipping || 0);
+          const totalPriceB = b.price + (b.shipping || 0);
+          return totalPriceA - totalPriceB;
+        });
 
-      console.log(`Found ${usedOffers.length} used offers, best price: ${bestPrice}`);
+        const bestOffer = sortedOffers[0];
+        bestPrice = convertKeepaPrice(bestOffer.price + (bestOffer.shipping || 0));
+        sellersCount = latestOffers.length;
+        isLatestPrice = true;
+
+        console.log(`Found ${latestOffers.length} recent used offers, best price: ${bestPrice}`);
+      } else {
+        // 古いオファー情報を使用
+        const sortedOffers = usedOffers.sort((a: any, b: any) => {
+          const totalPriceA = a.price + (a.shipping || 0);
+          const totalPriceB = b.price + (b.shipping || 0);
+          return totalPriceA - totalPriceB;
+        });
+
+        const bestOffer = sortedOffers[0];
+        bestPrice = convertKeepaPrice(bestOffer.price + (bestOffer.shipping || 0));
+        sellersCount = usedOffers.length;
+        isLatestPrice = false;
+
+        console.log(`Using older offer data, ${usedOffers.length} offers, best price: ${bestPrice}`);
+      }
     } else {
       // オファー情報がない場合は、CSVデータから最新価格を取得
-      const validPrices = usedPriceData.filter((price: number) => price !== -1 && price > 0);
+      const validPrices = usedPriceData.filter((price: number, index: number) => {
+        return index % 2 === 1 && price !== -1 && price > 0;
+      });
+      
       if (validPrices.length > 0) {
-        // 最新の価格を取得
         bestPrice = convertKeepaPrice(validPrices[validPrices.length - 1]);
-        sellersCount = validPrices.length;
+        sellersCount = Math.floor(validPrices.length / 2);
+        isLatestPrice = false;
         console.log(`Using CSV data, latest price: ${bestPrice}, data points: ${sellersCount}`);
       }
     }
@@ -95,27 +162,95 @@ const getOptimalUsedPrice = (product: any): { price: number | null; sellersCount
         console.warn(`Suspicious price detected: ${bestPrice}, filtering out`);
         bestPrice = null;
         sellersCount = 0;
+        isLatestPrice = false;
       }
     }
 
-    return { price: bestPrice, sellersCount };
+    return { 
+      price: bestPrice, 
+      sellersCount,
+      priceHistory: priceHistory.sort((a, b) => a.date - b.date),
+      avgPrice30Days,
+      avgPrice90Days,
+      avgPrice180Days,
+      isLatestPrice
+    };
   } catch (error) {
     console.error('Error processing used price data:', error);
-    return { price: null, sellersCount: 0 };
+    return { 
+      price: null, 
+      sellersCount: 0,
+      priceHistory: [],
+      avgPrice30Days: null,
+      avgPrice90Days: null,
+      avgPrice180Days: null,
+      isLatestPrice: false
+    };
   }
 };
 
 /**
  * 価格データの検証を行う関数
  */
-const validatePriceData = (amazonData: AmazonData, asin: string): AmazonData => {
+const validatePriceData = (amazonData: AmazonData, asin: string): AmazonData & {
+  priceAnalysis: {
+    isRecentData: boolean;
+    priceVariation: number | null;
+    marketComparison: string;
+    confidenceLevel: 'high' | 'medium' | 'low';
+    recommendations: string[];
+  }
+} => {
   const validatedData = { ...amazonData };
+  const recommendations: string[] = [];
+  let confidenceLevel: 'high' | 'medium' | 'low' = 'medium';
+  let isRecentData = false;
+  let priceVariation: number | null = null;
+  let marketComparison = '標準的';
+
+  // データの新しさを確認
+  const dataAge = Date.now() - (validatedData.lastUpdated || 0);
+  const oneHour = 60 * 60 * 1000;
+  const oneDay = 24 * oneHour;
+
+  if (dataAge < oneHour) {
+    isRecentData = true;
+    confidenceLevel = 'high';
+    recommendations.push('データは最新です（1時間以内）');
+  } else if (dataAge < oneDay) {
+    isRecentData = true;
+    confidenceLevel = 'medium';
+    recommendations.push('データは比較的新しいです（24時間以内）');
+  } else {
+    isRecentData = false;
+    confidenceLevel = 'low';
+    recommendations.push('データが古い可能性があります。更新を推奨します');
+  }
 
   // 中古価格の検証
   if (validatedData.usedPrice !== null) {
     if (validatedData.usedPrice <= 0) {
       console.warn(`Invalid used price for ${asin}: ${validatedData.usedPrice}`);
       validatedData.usedPrice = null;
+      recommendations.push('中古価格データに異常値が検出されました');
+    } else {
+      // 平均価格との比較
+      if (validatedData.avgPrice90Days) {
+        const variation = Math.abs(validatedData.usedPrice - validatedData.avgPrice90Days) / validatedData.avgPrice90Days;
+        priceVariation = variation * 100;
+
+        if (variation < 0.1) {
+          marketComparison = '平均的';
+          recommendations.push('現在価格は90日平均と近似しています');
+        } else if (variation < 0.2) {
+          marketComparison = validatedData.usedPrice < validatedData.avgPrice90Days ? '平均より安い' : '平均より高い';
+          recommendations.push(`現在価格は90日平均より${Math.round(priceVariation)}%${validatedData.usedPrice < validatedData.avgPrice90Days ? '安い' : '高い'}です`);
+        } else {
+          marketComparison = validatedData.usedPrice < validatedData.avgPrice90Days ? '大幅に安い' : '大幅に高い';
+          recommendations.push(`現在価格は90日平均より${Math.round(priceVariation)}%${validatedData.usedPrice < validatedData.avgPrice90Days ? '安く' : '高く'}、要注意です`);
+          if (confidenceLevel === 'high') confidenceLevel = 'medium';
+        }
+      }
     }
   }
 
@@ -124,21 +259,43 @@ const validatePriceData = (amazonData: AmazonData, asin: string): AmazonData => 
     if (validatedData.newPrice <= 0) {
       console.warn(`Invalid new price for ${asin}: ${validatedData.newPrice}`);
       validatedData.newPrice = null;
+      recommendations.push('新品価格データに異常値が検出されました');
     }
   }
 
   // 価格の論理的整合性チェック
   if (validatedData.usedPrice !== null && validatedData.newPrice !== null) {
-    // 中古価格が新品価格より高い場合は警告
     if (validatedData.usedPrice > validatedData.newPrice * 1.2) {
       console.warn(`Used price (${validatedData.usedPrice}) is significantly higher than new price (${validatedData.newPrice}) for ${asin}`);
+      recommendations.push('中古価格が新品価格より大幅に高いため、データの確認が必要です');
+      confidenceLevel = 'low';
+    } else if (validatedData.usedPrice > validatedData.newPrice) {
+      recommendations.push('中古価格が新品価格より高いため、注意が必要です');
     }
   }
 
-  return validatedData;
+  return {
+    ...validatedData,
+    priceAnalysis: {
+      isRecentData,
+      priceVariation,
+      marketComparison,
+      confidenceLevel,
+      recommendations
+    }
+  };
 };
 
-export const fetchAmazonData = async (asin: string): Promise<AmazonData & { title: string }> => {
+export const fetchAmazonData = async (asin: string): Promise<AmazonData & { 
+  title: string;
+  priceAnalysis?: {
+    isRecentData: boolean;
+    priceVariation: number | null;
+    marketComparison: string;
+    confidenceLevel: 'high' | 'medium' | 'low';
+    recommendations: string[];
+  }
+}> => {
   try {
     const apiKey = getKeepaApiKey();
     
@@ -158,10 +315,10 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        // オファー情報も含めて取得するようにパラメータを調整
-        const response = await fetch(`${KEEPA_API_URL}/product?key=${apiKey}&domain=5&asin=${asin}&stats=90&rating=1&offers=20&update=1&history=1`, {
+        // より詳細な統計データとオファー情報を取得
+        const response = await fetch(`${KEEPA_API_URL}/product?key=${apiKey}&domain=5&asin=${asin}&stats=1&rating=1&offers=50&update=1&history=1&days=30`, {
           method: 'GET',
           headers: {
             'Accept': 'application/json',
@@ -218,7 +375,14 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
         }
 
         // 改善された中古価格取得ロジックを使用
-        const { price: usedPrice, sellersCount: usedSellersCount } = getOptimalUsedPrice(product);
+        const { 
+          price: usedPrice, 
+          sellersCount: usedSellersCount,
+          avgPrice30Days,
+          avgPrice90Days,
+          avgPrice180Days,
+          isLatestPrice
+        } = getOptimalUsedPrice(product);
 
         // CSVデータから新品価格を取得
         const NEW_PRICE_INDEX = 0;
@@ -230,14 +394,10 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
         };
         const newPrice = getLatestPrice(newPriceData);
 
-        // 90日平均価格を取得
-        const USED_PRICE_INDEX = 1;
-        const avgPrice90Days = product.stats?.avg90?.[USED_PRICE_INDEX] || null;
-
         const amazonData: AmazonData = {
           usedPrice,
           usedSellersCount,
-          avgPrice90Days: convertKeepaPrice(avgPrice90Days),
+          avgPrice90Days,
           newPrice: convertKeepaPrice(newPrice),
           imageUrl: getAmazonImageUrl(product.imagesCSV),
           lastUpdated: Date.now()
@@ -246,11 +406,23 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
         // 価格データの検証を実行
         const validatedData = validatePriceData(amazonData, asin);
 
-        console.log(`Successfully fetched data for ${asin}:`, {
-          usedPrice: validatedData.usedPrice,
-          usedSellersCount: validatedData.usedSellersCount,
-          newPrice: validatedData.newPrice
-        });
+        // 特定のASIN（B01HC98W74）の場合は詳細ログを出力
+        if (asin === 'B01HC98W74') {
+          console.log('=== B01HC98W74 価格分析レポート ===');
+          console.log(`現在の中古価格: ${validatedData.usedPrice ? `¥${validatedData.usedPrice.toLocaleString()}` : '取得不可'}`);
+          console.log(`30日平均価格: ${avgPrice30Days ? `¥${avgPrice30Days.toLocaleString()}` : '取得不可'}`);
+          console.log(`90日平均価格: ${avgPrice90Days ? `¥${avgPrice90Days.toLocaleString()}` : '取得不可'}`);
+          console.log(`180日平均価格: ${avgPrice180Days ? `¥${avgPrice180Days.toLocaleString()}` : '取得不可'}`);
+          console.log(`データの新しさ: ${isLatestPrice ? '最新（1時間以内）' : '古い可能性あり'}`);
+          console.log(`出品者数: ${validatedData.usedSellersCount || 0}人`);
+          console.log(`信頼度: ${validatedData.priceAnalysis.confidenceLevel}`);
+          console.log(`市場比較: ${validatedData.priceAnalysis.marketComparison}`);
+          console.log('推奨事項:');
+          validatedData.priceAnalysis.recommendations.forEach((rec, index) => {
+            console.log(`  ${index + 1}. ${rec}`);
+          });
+          console.log('================================');
+        }
 
         return {
           title: product.title,
@@ -274,7 +446,7 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
         }
         
         // Wait before retrying (exponential backoff)
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Max 10 seconds
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -284,7 +456,6 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & { titl
     console.error('Error fetching Amazon data:', error);
     
     if (error instanceof Error) {
-      // If it's already a user-friendly error message, throw it as is
       if (error.message.includes('APIキー') || 
           error.message.includes('ASIN') || 
           error.message.includes('商品') ||
