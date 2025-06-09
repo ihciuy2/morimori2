@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, AlertCircle, Loader2, Package } from 'lucide-react';
 import { useProducts } from '../context/ProductContext';
 import { fetchAmazonData } from '../services/keepaService';
+import { formatCurrency } from '../utils/formatters';
 
 interface AsinRegistrationModalProps {
   isOpen: boolean;
@@ -65,6 +66,13 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
     } finally {
       setIsFetchingData(false);
     }
+  };
+
+  const formatPriceDisplay = (price: number | null, label: string) => {
+    if (price === null) {
+      return `${label}：価格情報なし`;
+    }
+    return `${label}：${formatCurrency(price)}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -188,16 +196,21 @@ const AsinRegistrationModal: React.FC<AsinRegistrationModalProps> = ({ isOpen, o
                 {/* 商品情報 */}
                 <div className="flex-1 min-w-0">
                   <h4 className="text-sm font-medium text-blue-800 mb-2">取得した商品情報</h4>
-                  <p className="text-xs text-blue-700 line-clamp-2 mb-2">
+                  <p className="text-xs text-blue-700 line-clamp-2 mb-3">
                     {productData.title}
                   </p>
-                  <div className="flex space-x-4 text-xs text-blue-600">
-                    {productData.newPrice && (
-                      <span>新品: ¥{productData.newPrice.toLocaleString()}</span>
-                    )}
-                    {productData.usedPrice && (
-                      <span>中古: ¥{productData.usedPrice.toLocaleString()}</span>
-                    )}
+                  
+                  {/* 価格情報 */}
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-gray-800">
+                      {formatPriceDisplay(productData.newPrice, "新品価格")}
+                    </div>
+                    <div className="text-sm font-medium text-gray-800">
+                      {productData.usedPrice !== null 
+                        ? formatPriceDisplay(productData.usedPrice, "中古価格")
+                        : "中古価格：中古商品なし"
+                      }
+                    </div>
                   </div>
                 </div>
               </div>
