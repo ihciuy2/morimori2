@@ -184,16 +184,6 @@ const ProductAutoFetch: React.FC = () => {
     link.click();
   };
 
-  // テンプレートダウンロード
-  const downloadTemplate = () => {
-    const template = 'B07PXGQC1Q\nB01HC98W74\nB08N5WRWNW\n';
-    const blob = new Blob([template], { type: 'text/plain' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'asin_template.txt';
-    link.click();
-  };
-
   const successCount = fetchedProducts.filter(p => p.status === 'success').length;
   const errorCount = fetchedProducts.filter(p => p.status === 'error').length;
 
@@ -272,7 +262,14 @@ const ProductAutoFetch: React.FC = () => {
                 ASINコードリスト（改行またはカンマ区切り）
               </label>
               <button
-                onClick={downloadTemplate}
+                onClick={() => {
+                  const template = 'B07PXGQC1Q\nB01HC98W74\nB08N5WRWNW\n';
+                  const blob = new Blob([template], { type: 'text/plain' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.download = 'asin_template.txt';
+                  link.click();
+                }}
                 className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
               >
                 <Download className="w-4 h-4 mr-1" />
@@ -406,24 +403,6 @@ const ProductAutoFetch: React.FC = () => {
             </div>
           </div>
         )}
-
-        {/* 注意事項 */}
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <div className="flex items-start">
-            <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 mr-2" />
-            <div>
-              <h4 className="text-sm font-medium text-blue-800 mb-2">ご利用上の注意</h4>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• 価格情報はKeepa APIと同期し、常に最新価格を表示します</li>
-                <li>• 在庫切れ商品は「価格情報なし」と表示されます</li>
-                <li>• 中古商品がない場合は「中古商品なし」と表示されます</li>
-                <li>• 一括取得時は2秒間隔で順次処理されます</li>
-                <li>• 1回の一括登録上限は100商品までです</li>
-                <li>• 取得できない場合はエラーメッセージが表示されます</li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
