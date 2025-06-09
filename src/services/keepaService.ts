@@ -125,8 +125,18 @@ const getOptimalUsedPrice = (product: any): {
     console.log('  90日平均:', avgPrice90Days);
     console.log('  180日平均:', avgPrice180Days);
 
+    // 優先順位0: 統計データの現在価格（最優先）
+    const currentUsedPrice = convertKeepaPrice(product.stats?.current?.[USED_PRICE_INDEX]);
+    if (currentUsedPrice !== null && currentUsedPrice > 0) {
+      bestPrice = currentUsedPrice;
+      sellersCount = 1; // 現在価格からは出品者数は不明だが、少なくとも1つは存在
+      isLatestPrice = true;
+      dataSource = 'Current Stats';
+      console.log(`✓ 統計データの現在価格から取得: ${bestPrice}円`);
+    }
+
     // 優先順位1: 最新のオファー情報（1時間以内）
-    if (usedOffers.length > 0) {
+    if (bestPrice === null && usedOffers.length > 0) {
       const latestOffers = usedOffers.filter((offer: any) => {
         const lastSeen = offer.lastSeen || 0;
         const oneHourAgo = now - (60 * 60 * 1000);
@@ -518,11 +528,11 @@ export const fetchAmazonData = async (asin: string): Promise<AmazonData & {
           });
           console.log('================================');
           
-          // 実際の価格と比較
-          if (validatedData.usedPrice === 264) {
-            console.error('❌ 価格取得エラー: 264円は明らかに間違い');
-            console.error('実際の中古カート価格: 14,980円');
-            console.error('データ取得ロジックに問題があります');
+          // 価格が正常に取得できた場合の確認ログ
+          if (validatedData.usedPrice && validatedData.usedPrice >= 10000) {
+            console.log('✅ 価格取得成功: 正常な価格範囲内です');
+          } else if (validatedData.usedPrice && validatedData.usedPrice < 1000) {
+            console.warn('⚠️ 価格が異常に安い可能性があります。データソースを確認してください。');
           }
         }
 
