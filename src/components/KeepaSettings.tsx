@@ -51,10 +51,13 @@ const KeepaSettings: React.FC = () => {
       const encryptedKey = btoa(apiKey);
       localStorage.setItem(KEEPA_API_KEY_STORAGE_KEY, encryptedKey);
       
-      // 環境変数を更新
-      window.location.reload();
-
       setSuccessMessage('APIキーを保存しました');
+      
+      // 成功メッセージを表示後、設定パネルを閉じる
+      setTimeout(() => {
+        setSuccessMessage(null);
+        setIsOpen(false);
+      }, 2000);
     } catch (error) {
       console.error('Failed to save API key:', error);
       setError('APIキーの保存に失敗しました');
@@ -63,7 +66,7 @@ const KeepaSettings: React.FC = () => {
     }
   };
 
-  const maskedApiKey = apiKey ? `${apiKey.slice(0, 4)}${'*'.repeat(apiKey.length - 8)}${apiKey.slice(-4)}` : '';
+  const maskedApiKey = apiKey ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(0, apiKey.length - 8))}${apiKey.slice(-4)}` : '';
 
   return (
     <div className="bg-white rounded-lg shadow-md mb-8 overflow-hidden">
