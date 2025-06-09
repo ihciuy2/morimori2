@@ -2,7 +2,7 @@ import React from 'react';
 import { ProductProvider } from './context/ProductContext';
 import Header from './components/Header';
 import KeepaSettings from './components/KeepaSettings';
-import DataCollectionDashboard from './components/DataCollectionDashboard';
+import ProductAutoFetch from './components/ProductAutoFetch';
 import MainLayout from './components/MainLayout';
 
 function App() {
@@ -10,9 +10,9 @@ function App() {
     <ProductProvider>
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <Header />
-        <div className="container mx-auto px-4 py-6">
+        <div className="container mx-auto px-4 py-6 space-y-6">
           <KeepaSettings />
-          <DataCollectionDashboard />
+          <ProductAutoFetch />
         </div>
         <MainLayout />
         <footer className="bg-white py-4 border-t border-gray-200">
