@@ -21,6 +21,13 @@ export interface AmazonData {
   newPrice: number | null;
   imageUrl: string | null;
   lastUpdated: number;
+  rank?: number | null;
+  sales3months?: number | null;
+  salesForecast?: {
+    probability10days?: number | null;
+    probability30days?: number | null;
+    probability90days?: number | null;
+  };
 }
 
 export interface YahooData {

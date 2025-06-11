@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import { Plus, Upload, RefreshCw, Settings, Search } from 'lucide-react';
 import { useProducts } from '../context/ProductContext';
 import AsinRegistrationModal from './AsinRegistrationModal';
+import KeywordRegistrationModal from './KeywordRegistrationModal';
 import BulkRegistrationModal from './BulkRegistrationModal';
+import KeepaSettings from './KeepaSettings';
 
 const Header: React.FC = () => {
-  const { products, refreshAllProducts, isLoading } = useProducts();
+  const { products, isLoading, refreshSelectedProducts } = useProducts();
   const [showAsinModal, setShowAsinModal] = useState(false);
+  const [showKeywordModal, setShowKeywordModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -36,7 +39,16 @@ const Header: React.FC = () => {
                   className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors"
                 >
                   <Plus size={16} className="mr-2" />
-                  新規登録
+                  ASIN登録
+                </button>
+                
+                <button
+                  id="btnKeyword"
+                  onClick={() => setShowKeywordModal(true)}
+                  className="flex items-center px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium text-sm transition-colors"
+                >
+                  <Search size={16} className="mr-2" />
+                  キーワード登録
                 </button>
                 
                 <button
@@ -50,7 +62,7 @@ const Header: React.FC = () => {
                 
                 <button
                   id="btnRefresh"
-                  onClick={refreshAllProducts}
+                  onClick={refreshSelectedProducts}
                   disabled={isLoading}
                   className={`flex items-center px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                     isLoading 
@@ -59,7 +71,7 @@ const Header: React.FC = () => {
                   }`}
                 >
                   <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-                  更新
+                  選択更新
                 </button>
                 
                 <button
@@ -86,12 +98,30 @@ const Header: React.FC = () => {
       {/* Modals */}
       <AsinRegistrationModal 
         isOpen={showAsinModal} 
-        onClose={() => setShowAsinModal(false)} 
+        onClose={() => setShowAsinModal(false)}
+      />
+      <KeywordRegistrationModal 
+        isOpen={showKeywordModal} 
+        onClose={() => setShowKeywordModal(false)}
       />
       <BulkRegistrationModal 
         isOpen={showBulkModal} 
         onClose={() => setShowBulkModal(false)} 
       />
+      {showSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="relative">
+            <button
+              onClick={() => setShowSettings(false)}
+              className="absolute top-2 right-2 p-1 bg-gray-200 rounded-full hover:bg-gray-300"
+              aria-label="閉じる"
+            >
+              ×
+            </button>
+            <KeepaSettings />
+          </div>
+        </div>
+      )}
     </>
   );
 };

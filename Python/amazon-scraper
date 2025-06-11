@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+import puppeteer from 'puppeteer';
+
+async function scrapeByASIN(asin) {
+  const url = `https://www.amazon.co.jp/dp/${asin}`;
+  const browser = await puppeteer.launch({ headless: true });
+  const page = await browser.newPage();
+
+  // Amazon用User-Agent（Bot判定を軽減）
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/114.0.0.0 Safari/537.36'
+  );
+
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+  // —————————————
+  // 取得パート
+  // —————————————
+
+  // 1) 商品タイトル
+  const title = await page
+    .$eval('#productTitle', el => el.textContent.trim())
+    .catch(() => 'タイトル取得失敗');
+
+  // 2) メイン画像URL
+  const imageUrl = await page
+    .$eval('#imgTagWrapperId img', img => img.src)
+    .catch(() => null);
+
+  // 3) 新品最安値
+  const newPrice = await page
+    .$eval('.a-price .a-offscreen', el => el.textContent.trim())
+    .catch(() => null);
+
+  // 4) 中古最安値
+  const usedPrice = await page
+    .$$eval('.olpUsedOffer .a-color-price', els =>
+      els.length ? els[0].textContent.trim() : null
+    )
+    .catch(() => null);
+
+  // 5) 売れ筋ランキング
+  const rank = await page
+    .$eval('#SalesRank, #detailBullets_feature_div', el => {
+      const t = el.textContent.replace(/\s+/g, '');
+      const m = t.match(/(\d[\d,]*)位/);
+      return m ? m[1] : null;
+    })
+    .catch(() => null);
+
+  await browser.close();
+  return { asin, title, imageUrl, newPrice, usedPrice, rank };
+}
+
+// コマンドライン実行部
+(async () => {
+  const asin = process.argv[2];
+  if (!asin) {
+    console.error('Usage: node scrape.js <ASIN>');
+    process.exit(1);
+  }
+  const data = await scrapeByASIN(asin);
+  console.log(JSON.stringify(data, null, 2));
+})();

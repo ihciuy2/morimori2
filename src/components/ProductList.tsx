@@ -1,34 +1,66 @@
 import React, { useState, useMemo } from 'react';
-import { Star, Search, Filter, Clock, TrendingUp, Package } from 'lucide-react';
+import { Search, Package, Star, TrendingUp, RefreshCw, Trash2, Loader2, Edit3 } from 'lucide-react';
 import { useProducts } from '../context/ProductContext';
-import { Product } from '../types';
-import { formatCurrency } from '../utils/formatters';
-
-interface ProductListProps {
-  selectedProduct: Product | null;
-  onSelectProduct: (product: Product) => void;
-}
 
 type SortOption = 'name' | 'profitRate' | 'updatedAt' | 'maxPurchasePrice';
 type FilterOption = 'all' | 'favorites' | 'profitable' | 'new' | 'used';
 type TimeFilter = '24h' | '12h' | 'all';
 
-const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProduct }) => {
-  const { products, updateProduct } = useProducts();
+interface ProductListProps {
+  selectedProductId: string | null;
+  onProductSelect: (id: string) => void;
+}
+
+const ProductList: React.FC<ProductListProps> = ({ selectedProductId, onProductSelect }) => {
+  const { 
+    products, 
+    removeProduct, 
+    refreshProduct,
+    selectedProducts,
+    toggleProductSelection,
+    selectAllProducts,
+    clearSelection,
+    updateProductAsin
+  } = useProducts();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('updatedAt');
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [asinInputs, setAsinInputs] = useState<{ [productId: string]: string }>({});
+  const [updating, setUpdating] = useState<Set<string>>(new Set());
 
-  const toggleFavorite = (productId: string) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(productId)) {
-      newFavorites.delete(productId);
-    } else {
-      newFavorites.add(productId);
+  const handleAsinInputChange = (productId: string, value: string) => {
+    const cleanValue = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    setAsinInputs(prev => ({
+      ...prev,
+      [productId]: cleanValue
+    }));
+  };
+
+  const handleAsinUpdate = async (productId: string) => {
+    const asin = asinInputs[productId];
+    if (!asin || asin.length !== 10) {
+      return;
     }
-    setFavorites(newFavorites);
+
+    setUpdating(prev => new Set(prev).add(productId));
+    try {
+      await updateProductAsin(productId, asin);
+      setAsinInputs(prev => {
+        const newInputs = { ...prev };
+        delete newInputs[productId];
+        return newInputs;
+      });
+    } catch (error) {
+      console.error('ASIN更新エラー:', error);
+    } finally {
+      setUpdating(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(productId);
+        return newSet;
+      });
+    }
   };
 
   const filteredAndSortedProducts = useMemo(() => {
@@ -36,9 +68,8 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        if (!product.name.toLowerCase().includes(query) && 
-            !product.asin.toLowerCase().includes(query) &&
-            !product.yahooKeyword.toLowerCase().includes(query)) {
+        const target = (product.title || product.name || product.asin || '').toLowerCase();
+        if (!target.includes(query)) {
           return false;
         }
       }
@@ -47,12 +78,10 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
       switch (filterBy) {
         case 'favorites':
           return favorites.has(product.id);
-        case 'profitable':
-          return product.profitAnalysis?.isProfitable || false;
         case 'new':
-          return product.amazonData?.newPrice !== null;
+          return product.newPrice !== undefined && product.newPrice !== '';
         case 'used':
-          return product.amazonData?.usedPrice !== null;
+          return product.usedPrice !== undefined && product.usedPrice !== '';
         default:
           return true;
       }
@@ -69,15 +98,7 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
     return filtered.sort((a, b) => {
       switch (sortBy) {
         case 'name':
-          return a.name.localeCompare(b.name);
-        case 'profitRate':
-          const aProfitRate = a.profitAnalysis?.profitRate || -Infinity;
-          const bProfitRate = b.profitAnalysis?.profitRate || -Infinity;
-          return bProfitRate - aProfitRate;
-        case 'maxPurchasePrice':
-          const aPrice = a.maxPurchasePrice || 0;
-          const bPrice = b.maxPurchasePrice || 0;
-          return bPrice - aPrice;
+          return (a.title || a.name || '').localeCompare(b.title || b.name || '');
         case 'updatedAt':
         default:
           return b.updatedAt - a.updatedAt;
@@ -89,7 +110,26 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">登録済商品一覧</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">登録済商品一覧</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">
+              {selectedProducts.size}件選択中
+            </span>
+            <button
+              onClick={selectAllProducts}
+              className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors"
+            >
+              全選択
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200 transition-colors"
+            >
+              選択解除
+            </button>
+          </div>
+        </div>
         
         {/* Search */}
         <div className="relative mb-3">
@@ -137,7 +177,6 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
             <option value="updatedAt">更新日時順</option>
             <option value="profitRate">利益率順</option>
             <option value="name">商品名順</option>
-            <option value="maxPurchasePrice">上限金額順</option>
           </select>
           
           <select
@@ -164,71 +203,155 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
             {filteredAndSortedProducts.map((product) => (
               <div
                 key={product.id}
-                onClick={() => onSelectProduct(product)}
-                className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                  selectedProduct?.id === product.id
-                    ? 'bg-blue-50 border-2 border-blue-200 shadow-sm'
-                    : 'bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors rounded-lg ${
+                  selectedProductId === product.id 
+                    ? 'bg-white shadow border-2 border-blue-200' 
+                    : 'border border-gray-200'
                 }`}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(product.id);
-                    }}
-                    className="p-1 hover:bg-gray-100 rounded"
-                  >
-                    <Star
-                      className={`w-4 h-4 ${
-                        favorites.has(product.id)
-                          ? 'text-yellow-500 fill-current'
-                          : 'text-gray-400'
-                      }`}
+                <div className="flex gap-3 items-start">
+                  {/* 左: チェックボックス */}
+                  <div className="flex items-center pt-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.has(product.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleProductSelection(product.id);
+                      }}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
                     />
-                  </button>
-                  
-                  {product.status === 'loading' && (
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  )}
-                </div>
-
-                <h3 className="text-sm font-medium text-gray-900 line-clamp-2 mb-2 leading-tight">
-                  {product.name}
-                </h3>
-
-                {product.maxPurchasePrice && (
-                  <p className="text-xs text-gray-600 mb-2">
-                    上限金額：{formatCurrency(product.maxPurchasePrice)}
-                  </p>
-                )}
-
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-gray-500">
-                    {product.profitAnalysis?.isProfitable ? (
-                      <span className="text-green-600 font-medium">利益対象</span>
-                    ) : (
-                      <span className="text-gray-500">対象外</span>
-                    )}
-                  </span>
-                  
-                  {product.profitAnalysis?.profitRate && (
-                    <span className={`font-medium ${
-                      product.profitAnalysis.profitRate >= product.targetProfitRate
-                        ? 'text-green-600'
-                        : 'text-amber-600'
-                    }`}>
-                      {product.profitAnalysis.profitRate.toFixed(1)}%
-                    </span>
-                  )}
-                </div>
-
-                {product.status === 'error' && (
-                  <div className="mt-2 text-xs text-red-600 flex items-center">
-                    <Clock className="w-3 h-3 mr-1" />
-                    エラー
                   </div>
-                )}
+
+                  {/* サムネイル */}
+                  <div 
+                    className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded cursor-pointer"
+                    onClick={() => onProductSelect(product.id)}
+                  >
+                    {product.status === 'loading' ? (
+                      <Loader2 className="animate-spin text-blue-500" size={16} />
+                    ) : product.images && product.images.length > 0 ? (
+                      <img 
+                        src={product.images[0]} 
+                        alt={product.keyword || product.asin} 
+                        className="w-10 h-10 object-contain rounded" 
+                      />
+                    ) : (
+                      <Package className="w-6 h-6 text-gray-300" />
+                    )}
+                  </div>
+                  
+                  {/* 中央: 商品情報 */}
+                  <div className="flex-1 min-w-0">
+                    <div 
+                      className="cursor-pointer"
+                      onClick={() => onProductSelect(product.id)}
+                    >
+                      <div className="font-medium text-sm mb-1 truncate">
+                        {product.keyword || product.asin}
+                      </div>
+                      <div className="text-xs text-gray-600 space-y-0.5">
+                        <div>
+                          {product.keyword ? `キーワード: ${product.keyword}` : `ASIN: ${product.asin}`}
+                        </div>
+                        {product.status === 'loading' ? (
+                          <div className="text-blue-500">取得中...</div>
+                        ) : product.status === 'error' ? (
+                          <div className="text-red-500">エラー</div>
+                        ) : product.keyword && !product.asin ? (
+                          <div className="text-orange-600">キーワード登録</div>
+                        ) : (
+                          <div className="text-green-600">ASIN登録</div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* ASIN入力フィールド（キーワード登録商品のみ） */}
+                    {product.keyword && !product.asin && (
+                      <div className="mt-2 space-y-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={asinInputs[product.id] || ''}
+                          onChange={(e) => handleAsinInputChange(product.id, e.target.value)}
+                          placeholder="ASIN入力 (10桁)"
+                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono tracking-wider focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                          maxLength={10}
+                          disabled={updating.has(product.id)}
+                        />
+                        <button
+                          onClick={() => handleAsinUpdate(product.id)}
+                          disabled={!asinInputs[product.id] || asinInputs[product.id].length !== 10 || updating.has(product.id)}
+                          className={`w-full px-2 py-1 text-xs rounded font-medium transition-colors ${
+                            (!asinInputs[product.id] || asinInputs[product.id].length !== 10 || updating.has(product.id))
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-blue-600 text-white hover:bg-blue-700'
+                          }`}
+                        >
+                          {updating.has(product.id) ? (
+                            <div className="flex items-center justify-center">
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              更新中...
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <Edit3 className="w-3 h-3 mr-1" />
+                              ASIN設定
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* 右: アクションボタン */}
+                  <div className="flex flex-col items-center space-y-1">
+                    <button
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        refreshProduct(product.id); 
+                      }}
+                      className="p-1.5 rounded hover:bg-blue-100 transition-colors"
+                      title="データ再取得"
+                      disabled={product.status === 'loading'}
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
+                    </button>
+
+                    <button
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setFavorites(prev => {
+                          const newFavorites = new Set(prev);
+                          if (newFavorites.has(product.id)) {
+                            newFavorites.delete(product.id);
+                          } else {
+                            newFavorites.add(product.id);
+                          }
+                          return newFavorites;
+                        });
+                      }}
+                      className={`p-1.5 rounded transition-colors ${
+                        favorites.has(product.id) 
+                          ? 'text-yellow-500 bg-yellow-50 hover:bg-yellow-100' 
+                          : 'text-gray-400 hover:bg-gray-100'
+                      }`}
+                      title={favorites.has(product.id) ? 'お気に入りを解除' : 'お気に入りに追加'}
+                    >
+                      <Star className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        removeProduct(product.id); 
+                      }}
+                      className="p-1.5 rounded hover:bg-red-100 transition-colors"
+                      title="削除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -244,9 +367,7 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
           </div>
           <div className="flex justify-between">
             <span>利益対象:</span>
-            <span className="text-green-600 font-medium">
-              {filteredAndSortedProducts.filter(p => p.profitAnalysis?.isProfitable).length}件
-            </span>
+            <span className="text-green-600 font-medium">--件</span>
           </div>
         </div>
       </div>
@@ -254,4 +375,4 @@ const ProductList: React.FC<ProductListProps> = ({ selectedProduct, onSelectProd
   );
 };
 
-export default ProductList;
+export default ProductList; 
